@@ -12,7 +12,7 @@ from mtcnn import FaceCropperAll
 # from torchvision import transforms
 # from torch.nn import Identity
 import torch
-from facenet_pytorch import InceptionResnetV1
+from facenet_pytorch import InceptionResnetV1, fixed_image_standardization
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -73,8 +73,8 @@ def feature_extract(out_file,imgs):
     resCropped, cnt = testFaceCropper(imgs)
 
     # not detected
-    if cnt == 0:
-        print("[cnt == 0] %s"%out_file)
+    # if cnt == 0:
+    #     print("[cnt == 0] %s"%out_file)
 
     # VGGface feature
     return resCropped
@@ -93,13 +93,8 @@ def crop_folder(imgs,out_file):
         for i in range(i, min(len(resCropped), i+batch_size)):
             im = Image.fromarray(resCropped[i]).resize((160,160))
             segment.append(np.asarray(im).transpose(2,0,1).astype(np.float32))
-
-        # segment = resCropped[i:i+batch_size]
-        # imgs = torch.stack([t(torch.from_numpy(img).float().permute(2,0,1)) for img in segment]).to(device)
-        # img = torch.from_numpy(img).float().permute(2,0,1)
-        # img = t(img)
-        # img = img.unsqueeze(0).to(device)
         segment = torch.tensor(np.stack(segment)).to(device)
+        segment = fixed_image_standardization(segment)
         with torch.no_grad():
             out = resnet(segment).detach().cpu().numpy()
         outs.append(out)
@@ -107,7 +102,7 @@ def crop_folder(imgs,out_file):
         outs = np.concatenate(outs)
         return resCropped, outs
     else:
-        return resCropped, np.zeros((1,512))
+        return resCropped, np.zeros((1,512)).astype(np.float32)
     #     # np.save(os.path.join(out_dir, "frame%03d.npy"%i), out)
     # imgs = np.concatenate(outs)
     # for img in out:
@@ -117,9 +112,9 @@ def crop_folder(imgs,out_file):
     # output = np.stack(resCropped)
     # np.save(out_file, output)
 
-files = [x.rstrip() for x in open('/usr/cs/public/train_data.txt', 'r')]
+if __name__ == '__main__':
+    files = [x.rstrip() for x in open('/usr/cs/public/mohd/train_data.txt', 'r')]
 # files = files[8000:]
 # with ThreadPoolExecutor(2) as threads:
-if __name__ == '__main__':
     for folder in tqdm(files, total = len(files)):
             process(folder)

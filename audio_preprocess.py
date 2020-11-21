@@ -4,7 +4,7 @@ import subprocess
 import librosa
 import librosa.filters
 import math
-import os
+import os, sys
 import numpy as np
 import scipy
 from rVAD_fast import get_vad
@@ -14,7 +14,7 @@ class Hparams():
   # Audio:
   num_mels=80
   num_freq=1025
-  sample_rate=48000
+  sample_rate=16000
   frame_length_ms=25
   frame_shift_ms=10
   preemphasis=0.97
@@ -146,19 +146,51 @@ def _normalize(S):
 def _denormalize(S):
   return (np.clip(S, 0, 1) * -hparams.min_level_db) + hparams.min_level_db
 
-folder = 'val'
-files = [x.rstrip() for x in open('/usr/cs/public/%s_data.txt'%folder)]
-data_dir = '/usr/cs/public/2020-1/%s'%folder
-tmp_dir = '/usr/cs/public/data/tmp'
-out_dir = '/usr/cs/public/data/%s'%folder
-FNULL = open(os.devnull, 'w')
+
+def process2(fn):
+    src = os.path.join(data_dir,"%s.mp4"%fn)
+    dst = os.path.join(tmp_dir,"%s.wav"%fn)
+    out_path = os.path.join(out_dir,'%s_mel.npy'%fn)
+    vad = os.path.join(out_dir,'%s_vad.txt'%fn)
+    out_wav = os.path.join(out_dir,'%s.wav'%fn)
+    if os.path.isfile(out_wav):
+        return
+    command = "ffmpeg -y -i %s -ac 2 -f wav %s"%(src, dst)
+    r = subprocess.call(command, shell=True, stdout=FNULL, stderr=subprocess.STDOUT)
+
+    wav = load_wav(dst)
+    # with open(vad, 'r') as f:
+    #     start, end = map(int, f.read().strip().split(', '))
+
+    # mel = melspectrogram(wav)
+    vad = get_vad(dst).tolist()
+    if 1 in vad:
+        start = vad.index(1)
+        end = len(vad) - 1 - vad[::-1].index(1)
+    else:
+        start = 0
+        end = -1
+
+    # np.save(out_path,mel[:,start:end])
+    # os.remove(dst)
+
+    if start == 0 and end == -1:
+        pass
+    else:
+        start = 25 + 10*start
+        end = 25 + 10*end
+    start = int(16000 * start/1000)
+    end = int(16000 * end/1000)
+    save_wav(wav[start:end], out_wav)
+    # with open(out_path.replace('mel','vad'), 'w') as f:
+    #     f.write("%d, %d"%(start, end))
 
 def process(fn):
     src = os.path.join(data_dir,"%s.mp4"%fn)
     dst = os.path.join(tmp_dir,"%s.wav"%fn)
     out_path = os.path.join(out_dir,'%s_mel.npy'%fn)
-    if os.path.isfile(out_path):
-        return
+    # if os.path.isfile(out_path):
+    #     return
     command = "ffmpeg -y -i %s -ac 2 -f wav %s"%(src, dst)
     r = subprocess.call(command, shell=True, stdout=FNULL, stderr=subprocess.STDOUT)
 
@@ -184,8 +216,17 @@ def process(fn):
     with open(out_path.replace('mel','vad'), 'w') as f:
         f.write("%d, %d"%(start, end))
 
-for fn in tqdm(files,total=len(files)):
-    process(fn)
-# with ThreadPoolExecutor(5) as threads:
-#     for _ in tqdm(threads.map(process, files), total = len(files)):
-#         pass
+if __name__ == '__main__':
+    folder = sys.argv[1]
+    files = [x.rstrip() for x in open('/usr/cs/public/mohd/%s_data.txt'%folder)]
+    files.sort()
+    data_dir = '/usr/cs/public/mohd/2020-1/%s'%folder
+    tmp_dir = '/usr/cs/public/mohd/data/tmp'
+    out_dir = '/usr/cs/public/mohd/data/%s'%folder
+    FNULL = open(os.devnull, 'w')
+    for fn in tqdm(files,total=len(files)):
+        process2(fn)
+    # with ThreadPoolExecutor(5) as threads:
+    #     for _ in tqdm(threads.map(process, files), total = len(files)):
+    #         pass
+    # process2(files[0])

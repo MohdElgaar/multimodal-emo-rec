@@ -157,10 +157,10 @@ class MTCNNFaceDetector(FaceCropper):
         cnt = 0
 
         for i in range(len(boxes)):
-            if (boxes[cnt] is None):
+            if (boxes[i] is None):
                 continue
             else:
-                box = boxes[cnt]
+                box = boxes[i]
                 x = box[0][0]
                 y = box[0][1]
                 w = box[0][2]
