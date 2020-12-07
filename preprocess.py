@@ -14,7 +14,8 @@ def process_vid(fn):
     # if os.path.isfile(out_file):
     #     return
     vid_dir = os.path.join(out_dir, folder, fn + '_imgs')
-    os.makedirs(vid_dir, exist_ok=True)
+    # os.makedirs(vid_dir, exist_ok=True)
+    # path = os.path.join(root_dir, folder, fn + '.mp4')
     # path = os.path.join(root_dir, folder, fn + '.mp4')
     path = os.path.join(root_dir, fn + '.mp4')
     vidcap = cv2.VideoCapture(path)
@@ -33,10 +34,10 @@ def process_vid(fn):
               break
         images, embeddings = crop_folder(imgs, out_file)
         outs.append(embeddings)
-        for i,out_image in enumerate(images):
-            out_image = Image.fromarray(out_image)
-            out_image.save(os.path.join(vid_dir,"frame{:04d}.jpg".format(out_id)))
-            out_id += 1
+        # for i,out_image in enumerate(images):
+        #     out_image = Image.fromarray(out_image)
+        #     out_image.save(os.path.join(vid_dir,"frame{:04d}.jpg".format(out_id)))
+        #     out_id += 1
         if not success:
             break
     vidcap.release()
@@ -64,17 +65,17 @@ def main(folder):
     else:
         files = [line.strip() for line in open('/usr/cs/public/mohd/%s_data.txt'%folder)]
     n = len(files)
-    with ThreadPoolExecutor(3) as threads:
-        for fn in tqdm(threads.map(process,files), total = n):
-            pass
-    # for fn in tqdm(files, total = n):
-    #     process(fn)
+    # with ThreadPoolExecutor(5) as threads:
+    #     for fn in tqdm(threads.map(process,files), total = n):
+    #         pass
+    for fn in tqdm(files, total = n):
+        process(fn)
 # process(files[0])
 
 if __name__ == '__main__':
     folder = sys.argv[1]
     if folder == 'all':
-        for folder in ['train', 'val', 'test']:
+        for folder in ['train', 'val', 'test1']:
             main(folder)
     else:
         main(folder)

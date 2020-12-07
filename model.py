@@ -29,13 +29,15 @@ class GELU2(nn.Module):
         return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
     
 class RnnLinear(nn.Module):
-    def __init__(self, in_dim, rnn_dim, activation, bidirectional=False, num_layers = 1, lin_drop=0.2):
+    def __init__(self, in_dim, rnn_dim, activation, bidirectional=False, num_layers = 1, lin_drop=0.2, in_drop=0):
         super().__init__()
         self.rnn = nn.LSTM(in_dim, rnn_dim, bidirectional=bidirectional,
                            num_layers = num_layers, batch_first=True)
         self.num_layers = num_layers
         self.rnn_dim = rnn_dim
         self.bidirectional = bidirectional
+        self.in_drop = in_drop
+#         self.bn = nn.BatchNorm1d(in_dim)
 #         self.lin = nn.Sequential(
 #             nn.BatchNorm1d(2*rnn_dim),
 #             nn.Linear(2*rnn_dim, 2*rnn_dim),
@@ -46,6 +48,8 @@ class RnnLinear(nn.Module):
     def forward(self, x, lens = None):
         bs = x.shape[0]
         x = F.layer_norm(x, x.shape[1:])
+#         x = self.bn(x.transpose(1,2)).transpose(1,2)
+        x = F.dropout(x, self.in_drop)
         if lens is not None:
             x = pack_padded_sequence(x, lens, batch_first=True, enforce_sorted=False)
         output, (h, c) = self.rnn(x)
@@ -61,14 +65,8 @@ class MyModel(nn.Module):
     self.name = name
     self.hparams = hparams
     self.iter = 0
-    self.stage = hparams.init_stage
-    self.earlystop_audio = False
-    self.earlystop_img = False
-    self.earlystop_text = False
-    self.earlystop_av = False
-    self.earlystop_at = False
-    self.earlystop_vt = False
-    self.earlystop_spk = False
+    self.reset_state()
+    num_classes = 6
     
     if hparams.activation == 'gelu1':
         activation = GELU1
@@ -101,7 +99,7 @@ class MyModel(nn.Module):
                               bidirectional=hparams.text_bidirectional)
     
     self.rnn_img = RnnLinear(hparams.img_dim, hparams.img_h, activation, num_layers = hparams.img_layers,
-                             bidirectional=hparams.img_bidirectional)
+                             bidirectional=hparams.img_bidirectional, in_drop = self.hparams.in_drop_img)
     self.rnn_audio = RnnLinear(hparams.audio_dim, hparams.audio_h, activation, num_layers = hparams.audio_layers,
                                bidirectional=hparams.audio_bidirectional)
 #     self.rnn_img = NewRNN(hparams.img_dim, hparams.img_h)
@@ -153,35 +151,39 @@ class MyModel(nn.Module):
 #         activation()
     )
     
-    self.classify_integrated = nn.Linear(hparams.fc2_dim + hparams.spk_dim, 7)
+    self.classify_integrated = nn.Linear(hparams.fc2_dim, num_classes)
     
 #     self.audio_spk = nn.Linear(2*hparams.audio_h, hparams.spk_dim)
 #     self.img_spk = nn.Linear(2*hparams.img_h, hparams.spk_dim)
 
-    self.av_spk = nn.Linear((1+hparams.audio_bidirectional)*hparams.audio_h + (1+hparams.img_bidirectional)*hparams.img_h, hparams.spk_dim)
+#     self.av_spk = nn.Linear((1+hparams.audio_bidirectional)*hparams.audio_h + (1+hparams.img_bidirectional)*hparams.img_h, hparams.spk_dim)
 #     self.av_spk = nn.Linear(hparams.audio_h + hparams.img_h, hparams.spk_dim)
     
 #     self.at_spk = nn.Linear(hparams.fc1_dim, hparams.spk_dim)
 #     self.vt_spk = nn.Linear(hparams.fc1_dim, hparams.spk_dim)
 #     self.avt_spk = nn.Linear(hparams.fc2_dim, hparams.spk_dim)
     
-    self.classify_spk = nn.Linear(hparams.spk_dim, hparams.num_spks)
-    self.classify_gen = nn.Linear(hparams.spk_dim, 2)
-    self.classify_age = nn.Linear(hparams.spk_dim, 1)
+#     self.classify_spk = nn.Linear(hparams.spk_dim, hparams.num_spks)
+#     self.classify_gen = nn.Linear(hparams.spk_dim, 2)
+#     self.classify_age = nn.Linear(hparams.spk_dim, 1)
         
 
     self.apply(self.init_weights)
 
-    self.loss = nn.CrossEntropyLoss(reduction='none')
-    self.reg_loss = nn.MSELoss()
+    w = torch.tensor([0.7, 2., 4., 3., 2.5, 3.])
+#     w = torch.tensor([0.270, 0.930, 2.095, 2.130, 1.618, 2.480])
+#     w = torch.tensor([1, 1., 2., 2., 1., 2.])
+#     self.loss = nn.CrossEntropyLoss(reduction='none')
+    self.loss = nn.BCEWithLogitsLoss(reduction='none', pos_weight = w)
+#     self.loss = nn.BCEWithLogitsLoss(reduction='none')
     
     if hparams.setting == 'aux':
-        self.classify_audio = nn.Linear((1+hparams.audio_bidirectional)*hparams.audio_h, 7)
-        self.classify_img = nn.Linear((1+hparams.img_bidirectional)*hparams.img_h, 7)
-        self.classify_text = nn.Linear((1+hparams.text_bidirectional)*hparams.text_h, 7)
-        self.classify_av = nn.Linear(hparams.fc1_av, 7)
-        self.classify_at = nn.Linear(hparams.fc1_at, 7)
-        self.classify_vt = nn.Linear(hparams.fc1_vt, 7)
+        self.classify_audio = nn.Linear((1+hparams.audio_bidirectional)*hparams.audio_h, num_classes)
+        self.classify_img = nn.Linear((1+hparams.img_bidirectional)*hparams.img_h, num_classes)
+        self.classify_text = nn.Linear((1+hparams.text_bidirectional)*hparams.text_h, num_classes)
+        self.classify_av = nn.Linear(hparams.fc1_av, num_classes)
+        self.classify_at = nn.Linear(hparams.fc1_at, num_classes)
+        self.classify_vt = nn.Linear(hparams.fc1_vt, num_classes)
 
         
   def init_weights(self, m):
@@ -194,6 +196,16 @@ class MyModel(nn.Module):
             if w.dim()>1:
                 weight_init.orthogonal_(w)
                 
+  def reset_state(self):
+    self.stage = self.hparams.init_stage
+    self.earlystop_audio = False
+    self.earlystop_img = False
+    self.earlystop_text = False
+    self.earlystop_av = False
+    self.earlystop_at = False
+    self.earlystop_vt = False
+    self.earlystop_spk = False
+    
   def attention_net(self, lstm_output, final_state):
       hidden = final_state
       attn_weights = torch.bmm(lstm_output, hidden.unsqueeze(2)).squeeze(2)
@@ -204,6 +216,9 @@ class MyModel(nn.Module):
   def forward(self, batch):
     audio, audio_lens, text, text_lens, imgs, img_lens = batch
     bs = audio.shape[0]
+#     text *= 0
+#     audio *= 0
+#     imgs *= 0
     
 #     audio = self.ln_audio(audio)
 #     output, (h_audio, c) = self.rnn_audio(audio)
@@ -220,6 +235,7 @@ class MyModel(nn.Module):
 #     output, (h_text, c) = self.rnn_text(text)
 #     h_text = h_text.view(self.hparams.text_layers, 2, bs, self.hparams.text_h)[-1]
 #     h_text = torch.cat([x for x in h_text], -1)
+#     h_text = self.rnn_text(text, text_lens)
     h_text = self.rnn_text(text, text_lens)
     h_text = self.dropout(h_text)
     
@@ -234,6 +250,8 @@ class MyModel(nn.Module):
 #     h_imgs = self.img_cnn(imgs.unsqueeze(1))
 #     h_imgs = h_imgs.squeeze().transpose(1,2)
     h_imgs = self.rnn_img(imgs, img_lens)
+#     if self.training:
+#         h_imgs += torch.normal(torch.zeros_like(h_imgs), torch.full_like(h_imgs, 0.1))
     h_imgs = self.dropout(h_imgs)
 
 #     h_imgs = h_imgs.squeeze()
@@ -241,17 +259,17 @@ class MyModel(nn.Module):
     
     h_av = torch.cat([h_audio, h_imgs], -1)
     av = self.av(h_av)
-    spk = self.av_spk(h_av)
-    outs_spk = self.classify_spk(spk)
-    outs_gen = self.classify_gen(spk)
-    outs_age = self.classify_age(spk)
+#     spk = self.av_spk(h_av)
+#     outs_spk = self.classify_spk(spk)
+#     outs_gen = self.classify_gen(spk)
+#     outs_age = self.classify_age(spk)
     
     if self.hparams.setting == 'aux' and self.stage == 1:
         out_audio = self.classify_audio(h_audio)
         out_imgs = self.classify_img(h_imgs)
         out_text = self.classify_text(h_text)
         
-        return out_audio, out_imgs, out_text, outs_spk, outs_gen, outs_age
+        return out_audio, out_imgs, out_text
 
     h_at = torch.cat([h_audio, h_text], -1)
     h_vt = torch.cat([h_imgs, h_text], -1)
@@ -264,14 +282,14 @@ class MyModel(nn.Module):
         out_at = self.classify_at(at)
         out_vt = self.classify_vt(vt)
         
-        return out_av, out_at, out_vt, outs_spk, outs_gen, outs_age
+        return out_av, out_at, out_vt
     
     
     h_avt = torch.cat([av, at, vt], -1)
     avt = self.avt(h_avt)
 
-    out_int = self.classify_integrated(torch.cat([avt, spk], -1))
-    return out_int, outs_spk, outs_gen, outs_age
+    out_int = self.classify_integrated(avt)
+    return out_int
     
 class PositionalEncoding(nn.Module):
 
@@ -300,7 +318,7 @@ class MyModel2(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(d_model=200, nhead=heads, dim_feedforward = hid, dropout=drop)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
 #         self.rnn = nn.LSTM(200,100, bidirectional=True)
-        self.classify = nn.Linear(200, 7)
+        self.classify = nn.Linear(200, num_classes)
         
         
     def forward(self, x, lens):
@@ -322,7 +340,7 @@ class MyModel3(nn.Module):
         super().__init__()
         self.iter = 0
         self.rnn = nn.LSTM(200, 128, bidirectional=True, batch_first = True)
-        self.classify = nn.Linear(2*128, 7)
+        self.classify = nn.Linear(2*128, num_classes)
         
     def forward(self, x, lens):
         bs = x.shape[0]
@@ -331,192 +349,3 @@ class MyModel3(nn.Module):
         h = torch.cat([x for x in h], -1)
         out = self.classify(h)
         return out
-    
-    
-class ResBasicBlock1D(nn.Module):
-    """ Adapted from
-        https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
-    """
-    expansion = 1
-
-    def __init__(self, inplanes, planes, kwidth=3, 
-                 dilation=1, norm_layer=None, name='ResBasicBlock1D', att=False, att_heads=4, att_dropout=0):
-        super().__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm1d
-
-        # compute padding given dilation factor
-        P  = (kwidth // 2) * dilation
-        self.conv1 = nn.Conv1d(inplanes, planes, kwidth,
-                               stride=1, padding=P,
-                               bias=False, dilation=dilation)
-        self.bn1 = norm_layer(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv1d(planes, planes, kwidth,
-                               padding=P, dilation=dilation,
-                               bias=False)
-        self.bn2 = norm_layer(planes)
-
-    def forward(self, x):
-        identity = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += identity
-        out = self.relu(out)
-        return out
-    
-class DRN(nn.Module):
-    """ Based on https://ieeexplore.ieee.org/document/8682154 
-        (Li et al. 2019), without MHA
-    """
-    def __init__(self, num_inputs, num_outputs, max_ckpts=5, 
-                 frontend=None, ft_fe=False, dropout=0,
-                 rnn_dropout=0, att=False, att_heads=4,
-                 att_dropout=0,
-                 name='EmoDRNMHA'):
-        super().__init__()
-        self.num_inputs = num_inputs
-        self.num_outputs = num_outputs
-        self.frontend = frontend
-        self.ft_fe = ft_fe
-        self.drn = nn.Sequential(
-            # first conv block (10, 32), 
-            nn.Conv1d(num_inputs, 32, 10),
-            # decimating x2
-            nn.Conv1d(32, 64, 2, stride=2),
-            # first residual blocks (2 resblocks)
-            ResBasicBlock1D(64, 64, kwidth=5, att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            ResBasicBlock1D(64, 64, kwidth=5, att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            # dropout feature maps
-            nn.Dropout2d(dropout),
-            # decimating x2
-            nn.Conv1d(64, 128, 2, stride=2),
-            # second residual blocks (2 resblocks)
-            ResBasicBlock1D(128, 128, kwidth=5, att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            ResBasicBlock1D(128, 128, kwidth=5, att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            # dropout feature maps
-            nn.Dropout2d(dropout),
-            nn.Conv1d(128, 256, 1, stride=1),
-            # third residual blocks (2 dilated resblocks)
-            ResBasicBlock1D(256, 256, kwidth=3, dilation=2,
-                            att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            ResBasicBlock1D(256, 256, kwidth=3, dilation=2,
-                            att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            # dropout feature maps
-            nn.Dropout2d(dropout),
-            nn.Conv1d(256, 512, 1, stride=1),
-            # fourth residual blocks (2 dilated resblocks)
-            ResBasicBlock1D(512, 512, kwidth=3, dilation=4,
-                            att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            ResBasicBlock1D(512, 512, kwidth=3, dilation=4,
-                            att=att,
-                            att_heads=att_heads,
-                            att_dropout=att_dropout), 
-            # dropout feature maps
-            nn.Dropout2d(dropout)
-        )
-        # recurrent pooling with 2 LSTM layers
-        self.rnn = nn.LSTM(512, 512, num_layers=2, batch_first=True,
-                           dropout=rnn_dropout)
-        # mlp on top (https://ieeexplore.ieee.org/abstract/document/7366551)
-        self.mlp = nn.Sequential(
-            nn.Conv1d(512, 200, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(200, 200, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv1d(200, num_outputs, 1),
-#             nn.LogSoftmax(dim=1)
-        )
-
-    def forward(self, x, lens):
-        # input x with shape [B, F, T]
-        # FORWARD THROUGH DRN
-        # ----------------------------
-        if self.frontend is not None:
-            x = self.frontend(x)
-            if not self.ft_fe:
-                x = x.detach()
-        x = F.pad(x, (4, 5))
-        x = self.drn(x)
-        # FORWARD THROUGH RNN
-        # ----------------------------
-        x = x.transpose(1, 2)
-        x, _ = self.rnn(x)
-        xt = torch.chunk(x, x.shape[1], dim=1)
-        x = xt[-1].transpose(1, 2)
-        # FORWARD THROUGH DNn
-        # ----------------------------
-        x = self.mlp(x)
-        return x
-
-class Attn(nn.Module):
-    '''
-    Attention Layer
-    '''
-    def __init__(self, hidden_size):
-        super(Attn, self).__init__()
-        self.attn = nn.Linear(hidden_size, 1)
-    
-    def forward(self, x):
-        '''
-        :param x: (batch_size, max_len, hidden_size)
-        :return alpha: (batch_size, max_len)
-        '''
-        x = torch.tanh(x) # (batch_size, max_len, hidden_size)
-        x = self.attn(x).squeeze(2) # (batch_size, max_len)
-        alpha = F.softmax(x, dim=1).unsqueeze(1) # (batch_size, 1, max_len)
-        return alpha
-
-class NewRNN(nn.Module):
-    '''
-    BiLSTM: BiLSTM, BiGRU
-    '''
-    def __init__(self, embed_dim, hidden_size):
-
-        super(NewRNN, self).__init__()
-        
-        self.hidden_size = hidden_size
-        
-        self.bilstm = nn.LSTM(embed_dim, hidden_size, bidirectional=True, batch_first=True)
-        
-        self.fc_dropout = nn.Dropout(0.2) 
-
-        self.attn = Attn(hidden_size)
-        
-    def forward(self, x, lens):
-        '''
-        :param x: [batch_size, max_len]
-        :return logits: logits
-        '''
-        # 输入的x是所有time step的输入, 输出的y实际每个time step的hidden输出
-        # _是最后一个time step的hidden输出
-        # 因为双向,y的shape为(batch_size, max_len, hidden_size*num_directions), 其中[:,:,:hidden_size]是前向的结果,[:,:,hidden_size:]是后向的结果
-        if lens is not None:
-            x = pack_padded_sequence(x, lens, batch_first=True, enforce_sorted=False)
-        y, _ = self.bilstm(x) # (batch_size, max_len, hidden_size*num_directions)
-        if lens is not None:
-            y = pad_packed_sequence(y)[0].transpose(0,1)
-        y = y[:,:,:self.hidden_size] + y[:,:,self.hidden_size:] # (batch_size, max_len, hidden_size)
-        alpha = self.attn(y) # (batch_size, 1, max_len)
-        r = alpha.bmm(y).squeeze(1) # (batch_size, hidden_size)
-        h = torch.tanh(r) # (batch_size, hidden_size)
-        return h

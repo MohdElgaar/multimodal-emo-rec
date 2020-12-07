@@ -220,6 +220,7 @@ if __name__ == '__main__':
     folder = sys.argv[1]
     files = [x.rstrip() for x in open('/usr/cs/public/mohd/%s_data.txt'%folder)]
     files.sort()
+    files = files[:10]
     data_dir = '/usr/cs/public/mohd/2020-1/%s'%folder
     tmp_dir = '/usr/cs/public/mohd/data/tmp'
     out_dir = '/usr/cs/public/mohd/data/%s'%folder
