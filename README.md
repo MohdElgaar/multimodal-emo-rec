@@ -1,5 +1,14 @@
 # Multimodal Emotion Recognition
 
+# Usage
+- Main code is in main.ipynb
+
+## Data
+- Raw data (CMU_MOSEI): http://immortal.multicomp.cs.cmu.edu/raw_datasets/ 
+- In the third cell of main.ipynb, replace train_path, train_txt, etc.
+
+
+## Information
 - This is a framework for traninig a multimodal sequence classification model end-to-end. The method can be 'full' or 'auxiliary', 'staged' or 'one-stage', 'tuning' or 'non-tuning'
 by setting *hparams.setting*, *hparams.tune_prev*, and *hparams.init_stage*. 
 
